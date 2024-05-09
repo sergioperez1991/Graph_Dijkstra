@@ -1,0 +1,360 @@
+import random
+import math
+from collections import deque
+import heapq
+
+
+class Nodo:
+    """
+    Representa un nodo dentro de un grafo, 
+    manteniendo un identificador y una lista de vecinos.
+    """
+    def __init__(self, id):
+        """
+        Inicializa un Nodo con un identificador único.
+        
+        Args:
+            id (int o str): Identificador del nodo.
+        """
+        self.id = id
+        self.vecinos = []  # Lista para almacenar los nodos vecinos conectados mediante aristas.
+
+
+class Arista:
+    """
+    Representa una arista entre dos nodos en un grafo, incluyendo un peso opcional.
+    """
+    def __init__(self, inicio, fin, peso=None):
+        """
+        Inicializa una Arista entre dos nodos, con un peso que puede ser especificado o generado aleatoriamente.
+        
+        Args:
+            inicio (Nodo): Nodo de inicio de la arista.
+            fin (Nodo): Nodo final de la arista.
+            peso (float, opcional): Peso de la arista, asignado aleatoriamente entre 1 y 20 si no se especifica.
+        """
+        self.inicio = inicio
+        self.fin = fin
+        self.peso = peso if peso is not None else random.randint(1, 20)
+
+class Grafo:
+    """
+    Representa un grafo, que puede ser dirigido o no dirigido, compuesto por nodos y aristas.
+    """
+    def __init__(self, dirigido=False):
+        """
+        Inicializa un Grafo, especificando si es dirigido.
+        
+        Args:
+            dirigido (bool): Verdadero si el grafo es dirigido, Falso si no lo es.
+        """
+        self.dirigido = dirigido
+        self.nodos = {}  # Diccionario para almacenar nodos por su identificador.
+        self.aristas = []  # Lista para almacenar las aristas del grafo.
+
+    def agregar_nodo(self, id):
+        """
+        Agrega un nodo al grafo si no existe ya, 
+        utilizando su identificador único.
+        
+        Args:
+            id (int o str): Identificador del nodo a agregar.
+        """
+        if id not in self.nodos:
+            self.nodos[id] = Nodo(id)
+
+    def existe_arista(self, inicio, fin):
+        """
+        Verifica si una arista entre dos nodos ya existe en el grafo.
+
+        Parámetros:
+            inicio (int o str): Identificador del nodo de inicio.
+            fin (int o str): Identificador del nodo final.
+
+        Retorna:
+            bool: True si la arista existe, False en caso contrario.
+        """
+        for arista in self.aristas:
+            if (arista.inicio.id == inicio and arista.fin.id == fin) or (arista.inicio.id == fin and arista.fin.id == inicio):
+                return True
+        return False
+          
+    def agregar_arista(self, inicio, fin, peso=None):
+        """
+        Agrega una arista entre dos nodos existentes, asegurándose de que no se duplique.
+        
+        Args:
+            inicio (int o str): Identificador del nodo de inicio.
+            fin (int o str): Identificador del nodo final.
+            peso (float, opcional): Peso de la arista, si no se especifica, se asignará uno al azar.
+        """
+        if inicio in self.nodos and fin in self.nodos and not self.existe_arista(inicio, fin):
+            arista = Arista(self.nodos[inicio], self.nodos[fin], peso)
+            self.aristas.append(arista)
+            self.nodos[inicio].vecinos.append(self.nodos[fin])
+            if not self.dirigido:
+                self.nodos[fin].vecinos.append(self.nodos[inicio])
+        
+    def exportar_graphviz(self, nombre_archivo):
+        """
+        Exporta el grafo al formato GraphViz (.gv) para visualización en herramientas como Gephi.
+        
+        Args:
+            nombre_archivo (str): Nombre del archivo de salida sin la extensión .gv.
+        """
+        with open(f"{nombre_archivo}.gv", "w") as archivo:
+            archivo.write("digraph G {\n" if self.dirigido else "graph G {\n")
+            for arista in self.aristas:
+                inicio, fin, peso = arista.inicio.id, arista.fin.id, arista.peso
+                archivo.write(f'    "{inicio}" {"->" if self.dirigido else "--"} "{fin}" [label="{peso}"];\n')
+            archivo.write("}\n")
+
+    def _subgrafo(self, padre):
+        """
+        Crea y devuelve un subgrafo basado en un diccionario de nodos predecesores. Este subgrafo es un árbol de expansión
+        que incluye todos los nodos y aristas que forman parte del camino desde un nodo raíz hasta cada uno de sus descendientes
+        accesibles.
+
+        Args:
+            padre (dict): Un diccionario donde las claves son identificadores de nodos y los valores son los identificadores
+                        de sus nodos predecesores en el árbol de expansión.
+
+        Returns:
+            Grafo: Un nuevo objeto Grafo que representa el árbol de expansión construido a partir del diccionario de predecesores.
+        """
+        subgrafo = Grafo(dirigido=self.dirigido)  # El subgrafo mantiene la propiedad de dirigido del grafo original.
+        for nodo, p in padre.items():
+            if p is not None:  # Si el nodo tiene predecesor, lo procesamos.
+                subgrafo.agregar_nodo(p)  # Asegura que el nodo predecesor esté en el subgrafo.
+                subgrafo.agregar_nodo(nodo)  # Asegura que el nodo actual esté en el subgrafo.
+                # Obtiene el peso de la arista entre el nodo y su predecesor en el grafo original para mantener la consistencia.
+                peso = self.obtener_peso(p, nodo)
+                subgrafo.agregar_arista(p, nodo, peso)  # Agrega la arista con el peso correcto al subgrafo.
+
+        return subgrafo
+
+
+    def BFS(self, s):
+        """
+        Realiza la búsqueda en amplitud (BFS) desde un nodo fuente dado, construyendo
+        y retornando el árbol inducido por el recorrido.
+        
+        Args:
+            s: El identificador del nodo fuente desde el cual comenzar el BFS.
+        
+        Returns:
+            Grafo: Un nuevo grafo que representa el árbol inducido por el recorrido BFS.
+        """
+        visitados = {nodo: False for nodo in self.nodos}  # Diccionario para marcar los nodos visitados
+        padre = {nodo: None for nodo in self.nodos}       # Diccionario para rastrear el árbol de expansión
+        cola = deque([s])                                 # Cola para los nodos a explorar
+        visitados[s] = True                               # Marcar el nodo fuente como visitado
+
+        while cola:
+            u = cola.popleft()                            # Desencolar un nodo para explorarlo
+            for v in self.nodos[u].vecinos:               # Revisar todos los vecinos del nodo u
+                if not visitados[v.id]:                   # Si el vecino no ha sido visitado
+                    visitados[v.id] = True                # Marcar como visitado
+                    padre[v.id] = u                       # Establecer u como el padre de v
+                    cola.append(v.id)                     # Encolar el vecino
+
+        return self._subgrafo(padre)                      # Retorna un subgrafo basado en los nodos visitados
+
+    def DFS_R(self, s):
+        """
+        Realiza un recorrido en profundidad (DFS) de manera recursiva desde un nodo fuente dado,
+        construyendo y retornando el árbol inducido por el recorrido.
+        
+        Args:
+            s: El identificador del nodo fuente desde el cual comenzar el DFS.
+        
+        Returns:
+            Grafo: Un nuevo grafo que representa el árbol inducido por el recorrido DFS.
+        """
+        visitados = {nodo: False for nodo in self.nodos}  # Diccionario para marcar los nodos visitados
+        padre = {nodo: None for nodo in self.nodos}       # Diccionario para rastrear el árbol de expansión
+
+        def _dfs(u):
+            visitados[u] = True                           # Marcar el nodo como visitado
+            for v in self.nodos[u].vecinos:               # Revisar todos los vecinos del nodo u
+                if not visitados[v.id]:                   # Si el vecino no ha sido visitado
+                    padre[v.id] = u                       # Establecer u como el padre de v
+                    _dfs(v.id)                            # Llamar recursivamente al DFS en el vecino
+
+        _dfs(s)
+        return self._subgrafo(padre)                      # Retorna un subgrafo basado en los nodos visitados
+
+    def DFS_I(self, s):
+        """
+        Realiza un recorrido en profundidad (DFS) de manera iterativa desde un nodo fuente dado,
+        construyendo y retornando el árbol inducido por el recorrido.
+
+        Args:
+            s: El identificador del nodo fuente desde el cual comenzar el DFS.
+
+        Returns:
+            Grafo: Un nuevo grafo que representa el árbol inducido por el recorrido DFS.
+        """
+        visitados = {nodo: False for nodo in self.nodos}  # Diccionario para marcar los nodos visitados
+        padre = {nodo: None for nodo in self.nodos}       # Diccionario para rastrear el árbol de expansión
+        pila = [s]                                        # Pila para los nodos a explorar
+
+        while pila:
+            u = pila.pop()                                # Desapilar un nodo para explorarlo
+            if not visitados[u]:
+                visitados[u] = True                       # Marcar el nodo como visitado
+                for v in reversed(self.nodos[u].vecinos): # Revisar todos los vecinos del nodo u
+                    if not visitados[v.id]:               # Si el vecino no ha sido visitado
+                        padre[v.id] = u                   # Establecer u como el padre de v
+                        pila.append(v.id)                 # Apilar el vecino
+
+        return self._subgrafo(padre)                      # Retorna un subgrafo basado en los nodos visitados
+
+    
+    def Dijkstra(self, origen, destino=None):
+        """
+        Ejecuta el algoritmo de Dijkstra para encontrar el camino más corto desde un nodo origen
+        a todos los otros nodos en el grafo, o hasta un destino específico si se proporciona.
+
+        Args:
+            origen (str): El identificador del nodo de origen.
+            destino (str, optional): El identificador del nodo de destino. Si se especifica, el algoritmo
+                                    se detendrá una vez se haya encontrado el camino más corto hasta este nodo.
+
+        Returns:
+            tuple: Un diccionario con las distancias mínimas desde el origen a cada nodo,
+                y un diccionario de nodos predecesores en el camino más corto.
+        """
+        # Inicialización de distancias y predecesores
+        distancias = {nodo: float('inf') for nodo in self.nodos}
+        distancias[origen] = 0
+        previos = {nodo: None for nodo in self.nodos}
+        heap = [(0, origen)]
+
+        while heap:
+            distancia_actual, nodo_actual = heapq.heappop(heap)
+
+            # Si el nodo actual es el destino, podemos detener la búsqueda temprano
+            if nodo_actual == destino:
+                break
+
+            # Procesar cada vecino del nodo actual
+            for vecino in self.nodos[nodo_actual].vecinos:
+                peso = self.obtener_peso(nodo_actual, vecino.id)
+                distancia = distancia_actual + peso
+
+                # Solo actualizar si se encuentra una distancia más corta
+                if distancia < distancias[vecino.id]:
+                    distancias[vecino.id] = distancia
+                    previos[vecino.id] = nodo_actual
+                    heapq.heappush(heap, (distancia, vecino.id))
+
+        return distancias, previos
+
+    def obtener_peso(self, inicio, fin):
+        """
+        Obtiene el peso de la arista entre dos nodos dados, considerando si el grafo es dirigido o no.
+
+        Args:
+            inicio (str): Identificador del nodo de inicio de la arista.
+            fin (str): Identificador del nodo final de la arista.
+
+        Returns:
+            float: El peso de la arista entre los nodos inicio y fin, o infinito si no existe tal arista.
+        """
+        for arista in self.aristas:
+            if (arista.inicio.id == inicio and arista.fin.id == fin) or (not self.dirigido and arista.inicio.id == fin and arista.fin.id == inicio):
+                return arista.peso
+        return float('inf')  # Retorna infinito si no hay arista entre los nodos.
+
+
+    def camino(self, previos, destino):
+        """
+        Reconstruye el camino mínimo desde un nodo origen hasta un nodo destino utilizando el diccionario de nodos predecesores.
+        Este diccionario es típicamente obtenido a partir de la ejecución de un algoritmo de ruta más corta como Dijkstra.
+
+        Args:
+            previos (dict): Un diccionario donde cada clave es un identificador de un nodo y su valor asociado es el identificador
+                            del nodo predecesor en el camino mínimo desde el nodo origen.
+            destino (str): El identificador del nodo destino hasta el cual reconstruir el camino.
+
+        Returns:
+            list: Una lista de identificadores de nodos que representa el camino reconstruido desde el nodo más cercano al origen
+                hasta el destino. Si el destino no es alcanzable, la lista será vacía.
+        """
+        camino = []
+        paso = destino
+        while paso is not None:
+            camino.append(paso)
+            paso = previos[paso]  # Mover al predecesor del nodo actual
+
+        if camino[-1] != destino:  # Comprueba si el camino realmente llega al destino
+            return []  # Devuelve una lista vacía si no hay camino
+
+        return camino[::-1]  # Devuelve el camino en el orden correcto desde el origen hasta el destino
+
+def leer_grafo_desde_gv(nombre_archivo):
+        """
+        Lee un grafo desde un archivo en formato GraphViz.
+
+        Args:
+            nombre_archivo (str): Ruta al archivo .gv desde el cual se lee el grafo.
+
+        Returns:
+            Grafo: Un objeto Grafo poblado con nodos y aristas extraídas del archivo .gv.
+        """
+        grafo = Grafo()
+        with open(nombre_archivo, 'r') as archivo:
+            for linea in archivo:
+                if '->' in linea or '--' in linea:
+                    partes = linea.strip().replace(';', '').split('[')[0].split('->' if '->' in linea else '--')
+                    inicio, fin = partes[0].strip('" '), partes[1].strip('" ')
+                    grafo.agregar_nodo(inicio)
+                    grafo.agregar_nodo(fin)
+                    peso = random.randint(1, 20)  # Peso aleatorio si no está especificado
+                    if '[' in linea and 'label' in linea:
+                        peso = float(linea.split('label="')[1].split('"')[0])
+                    grafo.agregar_arista(inicio, fin, peso)
+        return grafo
+
+def aplicar_dijkstra_a_grafos(grafo_nombre):
+    """
+    Aplica el algoritmo de Dijkstra desde el nodo con Id=0 en el grafo especificado y exporta los resultados,
+    mostrando las distancias mínimas desde este nodo a todos los demás nodos del grafo.
+
+    Parámetros:
+        grafo_nombre (str): El nombre base del archivo de grafo sin la extensión '.gv'.
+    """
+    grafo = leer_grafo_desde_gv(f"{grafo_nombre}.gv")
+    nodo_fuente = '0'  # Establecer el nodo origen como el nodo con Id=0
+
+    if nodo_fuente not in grafo.nodos:
+        print(f"El nodo fuente {nodo_fuente} no existe en el grafo {grafo_nombre}.")
+        return
+
+    distancias, previos = grafo.Dijkstra(nodo_fuente)
+
+    # Imprimir la distancia mínima desde el nodo fuente a todos los otros nodos
+    print(f"Distancias desde el nodo {nodo_fuente} en el grafo {grafo_nombre}:")
+    for nodo, distancia in distancias.items():
+        if distancia == float('inf'):
+            print(f"  {nodo}: No alcanzable")
+        else:
+            print(f"  {nodo}: {distancia:.2f}")
+
+    # Exportar el grafo modificado con las distancias calculadas a GraphViz
+    grafo.exportar_graphviz(f"{grafo_nombre}_dijkstra_desde_{nodo_fuente}")
+
+# Ejemplo de uso
+nombres_grafos = [
+    "ER_grafo30", "ER_grafo500", 
+    "Gilbert_grafo30", "Gilbert_grafo500",
+    "geografico_grafo30", "geografico_grafo500", 
+    "BA_grafo30", "BA_grafo500", 
+    "DM_grafo30", "DM_grafo500",
+    "malla_grafo30", "malla_grafo500"
+]
+
+for nombre in nombres_grafos:
+    aplicar_dijkstra_a_grafos(nombre)
+
